@@ -1,0 +1,23 @@
+# Runtime state (user-specific, don't commit)
+state.json
+*.pyc
+__pycache__/
+
+# Message directories (runtime data, don't commit messages)
+to-codex/*.json
+to-claude/*.json
+archive/*.json
+
+# Shared user files (keep the directories but not user's project data)
+shared/*/
+
+# Logs
+logs/*.log
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
