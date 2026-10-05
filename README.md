@@ -1,182 +1,59 @@
 # Claude ↔ Codex Bridge
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-green.svg)](https://www.python.org/)
+[简体中文](README_zh.md) · [MIT License](LICENSE)
 
-**Let two AI assistants talk to each other.** Claude and Codex cannot communicate directly — no API, no webhook, no socket. But they both can read and write files. This bridge turns a shared folder into a message channel between them.
+A Python command-line bridge for exchanging tasks, replies, and file references between Claude and Codex through a shared local directory. JSON messages keep the exchange inspectable, while thread IDs and reply references preserve conversation context.
 
-> 📖 [中文说明](README_zh.md)
+## Design
 
-```
-┌───────────┐     JSON files      ┌──────────────┐     JSON files      ┌───────────┐
-│  Claude   │ ────  to-codex/ ────│  Shared Dir  │────  to-claude/ ────│   Codex   │
-│ (Desktop) │                      │ F:\TEST\...\ │                     │ (Desktop) │
-└───────────┘                      └──────────────┘                     └───────────┘
+```text
+Claude → to-codex/ → Codex
+Claude ← to-claude/ ← Codex
+         shared/
 ```
 
-## Why
+- `bridge.py`: Claude-side send, check, wait, and history commands.
+- `codex_bridge.py`: Codex-side inbox, read, reply, and completion commands.
+- `auto_daemon.py`: polling and conversation state, including a two-party completion handshake.
+- `shared/<thread>/`: scripts, documents, and results referenced by messages.
 
-Claude and Codex are both powerful, but operate in separate silos. You can't have Claude ask Codex to run an experiment, or have Codex ask Claude to review its output — without copy-pasting everything yourself. This bridge automates the conversation, so you set a task and let them figure it out between themselves.
+The scripts transport and display messages. Task execution requires an assistant session authorized by the user.
 
-## What You Get
+## Quick start
 
-- **Manual mode** (`bridge.py` / `codex_bridge.py`) — send, check, reply, wait
-- **Auto mode** (`auto_daemon.py`) — full auto-poll loop with a **done protocol**: both sides confirm they're finished, then the conversation stops. No more endless loops.
-- **File sharing** — scripts, data, and results flow through `shared/` organized by conversation thread
-- **Scheduled polling** — Claude checks for Codex replies every 60 seconds (configurable)
-
-## Quick Start
-
-### 1. Pick a shared folder
-
-Choose a folder both Claude Desktop and Codex Desktop can access. On Windows, something like `C:\Users\You\bridge\` or `F:\TEST\claude-codex-bridge\`.
-
-### 2. Clone or copy the bridge
+Use Python 3.10+ and a working directory accessible to both assistant sessions. The scripts use the Python standard library.
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/claude-codex-bridge.git
-# or just copy bridge.py, codex_bridge.py, and auto_daemon.py into your shared folder
+git clone https://github.com/KaiserIIII/claude-codex-bridge.git
+cd claude-codex-bridge
+python bridge.py send "Review the README for broken links" --thread docs
+python codex_bridge.py inbox
 ```
 
-### 3. Tell Codex what to do (one-time setup)
+Read a message, then reply using its ID:
 
-In Codex Desktop, open the shared folder as your working directory. Then say:
-
-> "Read AUTO_FOR_CODEX.md and follow the instructions. Continuously watch to-codex/ for new JSON messages, execute the tasks they describe, and write replies to to-claude/. Keep going until both sides send done."
-
-Or run in a terminal:
 ```bash
-python3 codex_bridge.py listen
+python codex_bridge.py read <message_id>
+python codex_bridge.py reply <message_id> "Review completed; findings are in shared/docs/review.md"
+python bridge.py check
 ```
 
-### 4. Start a conversation from Claude
+## Polling and completion
 
-Tell Claude:
-
-> "Start a bridge conversation: [describe your task]"
-
-Claude will run:
 ```bash
-python3 auto_daemon.py init my_task "Run the hyperparameter sweep for..."
+python auto_daemon.py init docs "Review the README for broken links"
+python auto_daemon.py tick
+python auto_daemon.py status
 ```
 
-Then the two AIs handle the rest. You watch.
+`tick` checks incoming messages and updates the state file; call it periodically from the host session or a scheduler. A `done` message records one side's completion. The conversation stops when both sides confirm completion; a new task or question reopens the exchange.
 
-### 5. (Optional) Set up auto-polling
+## Constraints
 
-If Claude supports scheduled tasks, set it to run every 60 seconds:
-```bash
-python3 auto_daemon.py tick
-```
+Messages and shared files are plain local files. Both sessions need access to the directory, and polling introduces latency. Review inbound tasks before execution; access to the message folder does not grant permission to run commands or disclose files. The original workflow was developed on Windows.
 
-This checks for new Codex replies and auto-responds.
+## Reference
 
-## Commands
-
-### Claude side (`bridge.py`)
-| Command | What it does |
-|---------|-------------|
-| `bridge.py send "message" --thread name` | Send a task to Codex |
-| `bridge.py check` | Check for new replies |
-| `bridge.py wait --timeout 300` | Wait until Codex replies |
-| `bridge.py ask "question"` | Send + wait (one-shot Q&A) |
-| `bridge.py history --thread name` | Show conversation log |
-| `bridge.py listen` | Watch for messages continuously |
-
-### Codex side (`codex_bridge.py`)
-| Command | What it does |
-|---------|-------------|
-| `codex_bridge.py inbox` | List messages from Claude |
-| `codex_bridge.py read <id>` | Read a specific message |
-| `codex_bridge.py reply <id> "reply"` | Send a reply |
-| `codex_bridge.py done <id> "summary"` | Mark task complete |
-| `codex_bridge.py listen` | Watch continuously |
-
-### Auto daemon (`auto_daemon.py`)
-| Command | What it does |
-|---------|-------------|
-| `auto_daemon.py init thread task` | Start a new conversation |
-| `auto_daemon.py tick` | Check for replies (run on a schedule) |
-| `auto_daemon.py reply "msg"` | Claude replies to Codex |
-| `auto_daemon.py done` | Claude says it's finished |
-| `auto_daemon.py status` | Show conversation state |
-| `auto_daemon.py reset` | Reset and clear |
-
-## The Done Protocol
-
-The biggest problem with auto-looping agents is knowing when to stop. The bridge uses a simple two-way confirmation:
-
-1. Either side sends `type: "done"` — "I'm finished on my end."
-2. The other side either confirms with done → **both done, loop stops**, or replies with a new task/question → loop continues.
-3. No more "I think we're done?" / "Wait, actually..." ambiguity.
-
-## Message Format
-
-All messages are JSON files. Example:
-
-```json
-{
-  "id": "msg_20260726_143022_a3f2b1",
-  "from": "claude",
-  "to": "codex",
-  "type": "task",
-  "reply_to": null,
-  "thread": "experiment_1",
-  "body": "Run hyperparameter sweep with lr 1e-5 to 1e-3, 5 log-spaced points.",
-  "attachments": ["shared/experiment_1/scripts/sweep.py"],
-  "timestamp": "2026-07-26T14:30:22+08:00"
-}
-```
-
-See [PROTOCOL.md](PROTOCOL.md) for the full specification.
-
-## Directory Structure
-
-```
-claude-codex-bridge/
-├── bridge.py              # Claude-side manual script
-├── codex_bridge.py        # Codex-side manual script
-├── auto_daemon.py         # Auto-poll daemon with done protocol
-├── PROTOCOL.md            # Full message protocol spec
-├── AUTO_FOR_CODEX.md      # Quick-start instructions for Codex
-├── README.md              # You are here
-├── README_zh.md           # Chinese version
-├── .gitignore
-├── to-codex/              # Claude → Codex messages
-├── to-claude/             # Codex → Claude messages
-├── shared/                # Shared files (scripts, data, results)
-│   └── <thread>/
-│       ├── scripts/       # Code written by Claude
-│       └── results/       # Output from Codex
-├── archive/               # Processed message pairs
-└── logs/                  # Bridge activity log
-```
-
-## Real-World Workflow
-
-**Claude designs, Codex executes:**
-
-```
-Claude: "Here's the experiment plan and the training script. → shared/camp/design.md"
-Codex: "Ran it. Best lr=1e-4, acc=0.87. Results → shared/camp/results/"
-Claude: "Good. Now try with different initialization. Instructions →"
-Codex: "Done. Kaiming init beats Xavier by 2%. ← shared/camp/results/init_comparison.json"
-Claude: "Perfect. All work complete."  → type:done
-Codex: "Agreed."  → type:done
-→ Auto-stop. 🎉
-```
-
-## Limitations
-
-- Both assistants must run on the same machine (or a synced folder like Dropbox/OneDrive)
-- Messages are plain JSON on disk — no encryption (fine for local use)
-- Polling means replies aren't truly real-time (configurable down to 1 second)
-- Only tested with Claude Desktop + Codex Desktop on Windows
-
-## License
-
-MIT — use it, fork it, build on it. If you make something cool with it, let me know.
-
----
-
-*Built because copy-pasting between two AI windows gets old.*
+- [Message protocol](PROTOCOL.md)
+- [Usage guide](HOW_TO_USE.md)
+- [Codex session setup](AUTO_FOR_CODEX.md)
