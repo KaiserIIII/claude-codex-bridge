@@ -23,6 +23,8 @@ The scripts transport and display messages. Task execution requires an assistant
 
 Use Python 3.10+ and a working directory accessible to both assistant sessions. The scripts use the Python standard library.
 
+Place all three scripts in the **same shared checkout**. They resolve `to-codex/`, `to-claude/`, and other message folders relative to their own script directory, not a hard-coded drive or sandbox path.
+
 ```bash
 git clone https://github.com/KaiserIIII/claude-codex-bridge.git
 cd claude-codex-bridge
@@ -47,6 +49,16 @@ python auto_daemon.py status
 ```
 
 `tick` checks incoming messages and updates the state file; call it periodically from the host session or a scheduler. A `done` message records one side's completion. The conversation stops when both sides confirm completion; a new task or question reopens the exchange.
+
+## Verification
+
+Run the offline message round-trip regression suite without starting any assistant session:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+GitHub Actions runs the same tests on Windows and Linux with Python 3.10 and 3.13.
 
 ## Constraints
 
