@@ -5,12 +5,9 @@ File-based message bridge between Claude (running in Claude Desktop)
 and Codex (running in Codex Desktop / CLI).
 
 How it works:
-  - Claude writes task messages to   F:\TEST\claude-codex-bridge\to-codex\
-  - Codex reads from there, works, writes results to to-claude\
-  - Claude polls to-claude\ for replies
-
-This script runs INSIDE Claude's bash sandbox. The shared folder is
-mounted at /sessions/modest-loving-ride/mnt/TEST/claude-codex-bridge/
+  - Claude sends task messages to to-codex/ under this script's directory
+  - Codex replies in to-claude/ under that same directory
+  - Both sides use a shared checkout, so no machine-specific path is required
 
 Usage (from Claude's side):
   python3 bridge.py send     "Please run the experiments for the CAMP project"
@@ -42,7 +39,7 @@ import uuid
 from datetime import datetime, timezone, timedelta
 
 # ── Config ──────────────────────────────────────────────────────────
-BASE_DIR = "/sessions/modest-loving-ride/mnt/TEST/claude-codex-bridge"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TO_CODEX = os.path.join(BASE_DIR, "to-codex")
 TO_CLAUDE = os.path.join(BASE_DIR, "to-claude")
 SHARED = os.path.join(BASE_DIR, "shared")
